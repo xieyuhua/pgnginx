@@ -13,8 +13,12 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
+	"bytes"
+    "strconv"
+	"io/ioutil"
 	"github.com/alash3al/go-fastcgi-client"
+	prom_http_exporter "github.com/pan-net-security/go-prometheus-http-exporter"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var (
@@ -58,7 +62,7 @@ type BackendConfig struct {
 	Ext     []string
 	Params  map[string]string
 }
-
+var i int
 func main() {
 	flag.Parse()
 
@@ -68,17 +72,32 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
+    i = 0;
 	FCGIBackendConfig = cnf
 
+	e := prom_http_exporter.New()
+
+	r := http.NewServeMux()
+	r.Handle(e.Metric("/", Serve))
+	r.Handle("/metrics", promhttp.Handler())
+
+	s := &http.Server{
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		Handler:      r,
+	}
 	fmt.Printf("  http server started on %s\n", *FlagHTTPAddr)
-	log.Fatal(http.ListenAndServe(*FlagHTTPAddr, http.HandlerFunc(Serve)))
+	log.Fatal(http.ListenAndServe(*FlagHTTPAddr, s.Handler))
+	
+// 	log.Fatal(http.ListenAndServe(*FlagHTTPAddr, http.HandlerFunc(Serve)))
 }
 
 // Serve the main http handler
 func Serve(res http.ResponseWriter, req *http.Request) {
 	defer req.Body.Close()
-
+    i = i+1
+    str := fmt.Sprintf("Requests :%d 次", i)
+    log.Println(str)
 	defer func() {
 		if err := recover(); err != nil {
 			res.WriteHeader(500)
@@ -167,7 +186,9 @@ func Serve(res http.ResponseWriter, req *http.Request) {
 		"PATH_INFO":          pathInfo,
 		"ORIG_PATH_INFO":     pathInfo,
 		"HTTP_HOST":          req.Host,
+		
 	}
+	
 
 	for k, v := range req.Header {
 		if len(v) < 1 {
@@ -187,8 +208,19 @@ func Serve(res http.ResponseWriter, req *http.Request) {
 
 	c.SetReadTimeout(time.Duration(*FlagReadTimeout) * time.Second)
 	c.SetSendTimeout(time.Duration(*FlagWriteTimeout) * time.Second)
-
-	resp, err := c.Request(params, req.Body)
+	
+	body := bytes.NewReader([]byte("asd=1"))
+	if req.Method == "POST" {
+		bodyss, _ := ioutil.ReadAll(req.Body)
+		reqms   := string(bodyss)
+    	body = bytes.NewReader([]byte(reqms))
+    	params["CONTENT_TYPE"]   = "application/x-www-form-urlencoded"
+    	params["REQUEST_METHOD"] =  strings.ToUpper("POST")
+    	params["CONTENT_LENGTH"] =  strconv.FormatInt(int64(body.Len()), 10)
+	}
+	
+	
+	resp, err := c.Request(params, body)
 	if resp == nil || resp.Body == nil || err != nil {
 		res.WriteHeader(500)
 		res.Write([]byte(err.Error()))

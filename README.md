@@ -25,5 +25,31 @@ Usage of ./pgnginx:
     	the read timeout, zero means unlimited
   -wtimeout int
     	the write timeout, zero means unlimited
+    	
+    
+	
+    	
+func Serve(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(401)
+	w.Write([]byte("bar"))
+}
 
+/prometheus metrics
+func main() {
+	e := prom_http_exporter.New()
+
+	r := http.NewServeMux()
+	r.Handle(e.Metric("/", Serve))
+	r.Handle("/metrics", promhttp.Handler())
+
+	s := &http.Server{
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		Handler:      r,
+	}
+	fmt.Printf("  http server started on %s\n", *FlagHTTPAddr)
+	log.Fatal(http.ListenAndServe(*FlagHTTPAddr, s.Handler))
+	
+// 	log.Fatal(http.ListenAndServe(*FlagHTTPAddr, http.HandlerFunc(Serve)))
+}
 ```
